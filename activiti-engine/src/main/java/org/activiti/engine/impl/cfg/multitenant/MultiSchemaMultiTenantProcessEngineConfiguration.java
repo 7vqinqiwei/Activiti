@@ -27,6 +27,7 @@ import org.activiti.engine.impl.db.DbIdGenerator;
 import org.activiti.engine.impl.interceptor.CommandInterceptor;
 import org.activiti.engine.impl.persistence.StrongUuidGenerator;
 import org.activiti.engine.repository.DeploymentBuilder;
+import org.activiti.runtime.api.identity.UserGroupManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -168,4 +169,8 @@ public class MultiSchemaMultiTenantProcessEngineConfiguration extends ProcessEng
     // empty here. will be done in registerTenant
   }
 
+  @Override
+  public UserGroupManager getUserGroupManager() {
+    return null; //no external identity provider supplied
+  }
 }

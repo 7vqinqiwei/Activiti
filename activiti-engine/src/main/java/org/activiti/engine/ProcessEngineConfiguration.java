@@ -18,7 +18,10 @@ import org.activiti.engine.impl.cfg.BeansConfigurationHelper;
 import org.activiti.engine.impl.cfg.StandaloneInMemProcessEngineConfiguration;
 import org.activiti.engine.impl.cfg.StandaloneProcessEngineConfiguration;
 import org.activiti.engine.impl.history.HistoryLevel;
+import org.activiti.engine.impl.persistence.entity.integration.IntegrationContextManager;
+import org.activiti.engine.integration.IntegrationContextService;
 import org.activiti.engine.runtime.Clock;
+import org.activiti.runtime.api.identity.UserGroupManager;
 
 import javax.sql.DataSource;
 import java.io.InputStream;
@@ -115,7 +118,6 @@ public abstract class ProcessEngineConfiguration {
   protected String jdbcUsername = "sa";
   protected String jdbcPassword = "";
   protected String dataSourceJndiName;
-  protected boolean isDbIdentityUsed = true;
   protected boolean isDbHistoryUsed = true;
   protected HistoryLevel historyLevel;
   protected int jdbcMaxActiveConnections;
@@ -185,15 +187,9 @@ public abstract class ProcessEngineConfiguration {
    */
   protected boolean tablePrefixIsSchema;
 
-  protected boolean isCreateDiagramOnDeploy = true;
-
   protected String xmlEncoding = "UTF-8";
 
   protected String defaultCamelContext = "camelContext";
-
-  protected String activityFontName = "Arial";
-  protected String labelFontName = "Arial";
-  protected String annotationFontName = "Arial";
 
   protected ClassLoader classLoader;
   /**
@@ -239,12 +235,6 @@ public abstract class ProcessEngineConfiguration {
     return new StandaloneInMemProcessEngineConfiguration();
   }
 
-  // TODO add later when we have test coverage for this
-  // public static ProcessEngineConfiguration
-  // createJtaProcessEngineConfiguration() {
-  // return new JtaProcessEngineConfiguration();
-  // }
-
   public abstract RepositoryService getRepositoryService();
 
   public abstract RuntimeService getRuntimeService();
@@ -253,11 +243,15 @@ public abstract class ProcessEngineConfiguration {
 
   public abstract HistoryService getHistoryService();
 
-  public abstract IdentityService getIdentityService();
-
   public abstract ManagementService getManagementService();
 
   public abstract ProcessEngineConfiguration getProcessEngineConfiguration();
+
+  public abstract UserGroupManager getUserGroupManager();
+
+  public abstract IntegrationContextService getIntegrationContextService();
+
+  public abstract IntegrationContextManager getIntegrationContextManager();
 
   // getters and setters
   // //////////////////////////////////////////////////////
@@ -468,15 +462,6 @@ public abstract class ProcessEngineConfiguration {
     return this;
   }
 
-  public boolean isDbIdentityUsed() {
-    return isDbIdentityUsed;
-  }
-
-  public ProcessEngineConfiguration setDbIdentityUsed(boolean isDbIdentityUsed) {
-    this.isDbIdentityUsed = isDbIdentityUsed;
-    return this;
-  }
-
   public boolean isDbHistoryUsed() {
     return isDbHistoryUsed;
   }
@@ -639,24 +624,6 @@ public abstract class ProcessEngineConfiguration {
     return this;
   }
 
-  public boolean isCreateDiagramOnDeploy() {
-    return isCreateDiagramOnDeploy;
-  }
-
-  public ProcessEngineConfiguration setCreateDiagramOnDeploy(boolean createDiagramOnDeploy) {
-    this.isCreateDiagramOnDeploy = createDiagramOnDeploy;
-    return this;
-  }
-
-  public String getActivityFontName() {
-    return activityFontName;
-  }
-
-  public ProcessEngineConfiguration setActivityFontName(String activityFontName) {
-    this.activityFontName = activityFontName;
-    return this;
-  }
-
   public ProcessEngineConfiguration setProcessEngineLifecycleListener(ProcessEngineLifecycleListener processEngineLifecycleListener) {
     this.processEngineLifecycleListener = processEngineLifecycleListener;
     return this;
@@ -664,24 +631,6 @@ public abstract class ProcessEngineConfiguration {
 
   public ProcessEngineLifecycleListener getProcessEngineLifecycleListener() {
     return processEngineLifecycleListener;
-  }
-
-  public String getLabelFontName() {
-    return labelFontName;
-  }
-
-  public ProcessEngineConfiguration setLabelFontName(String labelFontName) {
-    this.labelFontName = labelFontName;
-    return this;
-  }
-
-  public String getAnnotationFontName() {
-    return annotationFontName;
-  }
-
-  public ProcessEngineConfiguration setAnnotationFontName(String annotationFontName) {
-    this.annotationFontName = annotationFontName;
-    return this;
   }
 
   public String getDatabaseTablePrefix() {
@@ -796,7 +745,7 @@ public abstract class ProcessEngineConfiguration {
   public void setEngineAgendaFactory(ActivitiEngineAgendaFactory engineAgendaFactory) {
     this.engineAgendaFactory = engineAgendaFactory;
   }
-  
+
   public ActivitiEngineAgendaFactory getEngineAgendaFactory() {
     return engineAgendaFactory;
   }

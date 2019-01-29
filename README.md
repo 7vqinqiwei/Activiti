@@ -1,23 +1,15 @@
 Activiti
 ========
 
-[![Join the chat at https://gitter.im/Activiti/Activiti7](https://badges.gitter.im/Activiti/Activiti7.svg)](https://gitter.im/Activiti/Activiti7?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-
-
-<p>
-  <a title='Build Status Travis' href="https://travis-ci.org/Activiti/Activiti">
-    <img src='https://travis-ci.org/Activiti/Activiti.svg?branch=development'  alt='Travis Status' />
-  </a>
-  <a href='https://codecov.io/gh/Activiti/Activiti'>
-    <img src='http://img.shields.io/codecov/c/github/Activiti/Activiti/development.svg?maxAge=2592000' alt='Coverage Status' />
-  </a>
-  <a href='https://www.codacy.com/app/Activiti/Activiti?utm_source=github.com&utm_medium=referral&utm_content=Activiti/Activiti&utm_campaign=badger'>
-      <img src='https://api.codacy.com/project/badge/Grade/f859f1bf542b43cab64e1e85706e5243' alt='codacy' />
-    </a>
-  <a href='https://github.com/Activiti/Activiti/blob/master/LICENSE'>
-       <img src='https://img.shields.io/hexpm/l/plug.svg' alt='license' />
-    </a>
-</p>
+[![Join Us in Gitter](https://badges.gitter.im/Activiti/Activiti7.svg)](https://gitter.im/Activiti/Activiti7?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Build Status Travis](https://travis-ci.org/Activiti/Activiti.svg?branch=master)](https://travis-ci.org/Activiti/Activiti)
+[![Coverage Status](http://img.shields.io/codecov/c/github/Activiti/Activiti/master.svg?maxAge=86400)](https://codecov.io/gh/Activiti/Activiti)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/f859f1bf542b43cab64e1e85706e5243)](https://www.codacy.com/app/Activiti/Activiti?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=Activiti/Activiti&amp;utm_campaign=Badge_Grade)
+[![ASL 2.0](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/Activiti/Activiti/blob/master/LICENSE.txt)
+[![CLA](https://cla-assistant.io/readme/badge/Activiti/Activiti)](https://cla-assistant.io/Activiti/Activiti)
+[![Known Vulnerabilities](https://snyk.io/test/github/Activiti/Activiti/badge.svg)](https://snyk.io/test/github/Activiti/Activiti)
+[![security status](https://www.meterian.com/badge/gh/Activiti/Activiti/security)](https://www.meterian.com/report/gh/Activiti/Activiti)
+[![stability status](https://www.meterian.com/badge/gh/Activiti/Activiti/stability)](https://www.meterian.com/report/gh/Activiti/Activiti)
 
 Homepage: http://activiti.org/
 
@@ -28,6 +20,7 @@ Activiti is a light-weight workflow and Business Process Management (BPM) Platfo
 
 Activiti JIRA: https://activiti.atlassian.net
 
+If you want to read more about our Repositories structure you can read our [GitBook](https://activiti.gitbooks.io/activiti-7-developers-guide/content/).
 
 Configuring IntelliJ
 --------------------
@@ -57,7 +50,7 @@ Configuring IntelliJ
 
     * If you don't do this, you need to set the file encoding and number of spaces correctly manually.
 
-    * Use the one from `Activiti/ide-configuration`
+    * Use the one from `activiti-build/ide-configuration` in the [activiti-build repo](https://github.com/Activiti/activiti-build)
 
     * Copy to `~/.IntelliJIdea*/config/codestyles/` (on mac: `~/Library/Preferences/IntelliJIdea*/config/codestyles/`)
 

@@ -122,8 +122,6 @@ public class DefaultProcessValidatorTest {
     assertCommonProblemFieldForActivity(problems.get(0));
     problems = findErrors(allErrors, setName, Problems.SERVICE_TASK_INVALID_TYPE, 1);
     assertCommonProblemFieldForActivity(problems.get(0));
-    problems = findErrors(allErrors, setName, Problems.SERVICE_TASK_MISSING_IMPLEMENTATION, 1);
-    assertCommonProblemFieldForActivity(problems.get(0));
     problems = findErrors(allErrors, setName, Problems.SERVICE_TASK_WEBSERVICE_INVALID_OPERATION_REF, 1);
     assertCommonProblemFieldForActivity(problems.get(0));
 

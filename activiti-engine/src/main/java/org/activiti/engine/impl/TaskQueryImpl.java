@@ -19,7 +19,6 @@ import java.util.List;
 import org.activiti.engine.ActivitiException;
 import org.activiti.engine.ActivitiIllegalArgumentException;
 import org.activiti.engine.DynamicBpmnConstants;
-import org.activiti.engine.identity.Group;
 import org.activiti.engine.impl.context.Context;
 import org.activiti.engine.impl.interceptor.CommandContext;
 import org.activiti.engine.impl.interceptor.CommandExecutor;
@@ -31,6 +30,9 @@ import org.activiti.engine.task.TaskQuery;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.activiti.runtime.api.identity.UserGroupManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
 
@@ -42,10 +44,13 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
 
   private static final long serialVersionUID = 1L;
 
+  private static final Logger log = LoggerFactory.getLogger(TaskQueryImpl.class);
+
   protected String taskId;
   protected String name;
   protected String nameLike;
   protected String nameLikeIgnoreCase;
+  protected String taskParentTaskId;
   protected List<String> nameList;
   protected List<String> nameListIgnoreCase;
   protected String description;
@@ -460,11 +465,27 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
     if (candidateUser == null) {
       throw new ActivitiIllegalArgumentException("Candidate user is null");
     }
-    
+
     if (orActive) {
       currentOrQueryObject.candidateUser = candidateUser;
     } else {
       this.candidateUser = candidateUser;
+    }
+
+    return this;
+  }
+
+  public TaskQueryImpl taskCandidateUser(String candidateUser, List<String> usersGroups) {
+    if (candidateUser == null) {
+      throw new ActivitiIllegalArgumentException("Candidate user is null");
+    }
+
+    if (orActive) {
+      currentOrQueryObject.candidateUser = candidateUser;
+      currentOrQueryObject.candidateGroups = usersGroups;
+    } else {
+      this.candidateUser = candidateUser;
+      this.candidateGroups = usersGroups;
     }
 
     return this;
@@ -521,13 +542,36 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
     if (candidateUser != null) {
       throw new ActivitiIllegalArgumentException("Invalid query usage: cannot set both candidateGroup and candidateUser");
     }
-    
+
     if(orActive) {
       currentOrQueryObject.bothCandidateAndAssigned = true;
       currentOrQueryObject.userIdForCandidateAndAssignee = userIdForCandidateAndAssignee;
     } else {
       this.bothCandidateAndAssigned = true;
       this.userIdForCandidateAndAssignee = userIdForCandidateAndAssignee;
+    }
+
+    return this;
+  }
+
+
+  @Override
+  public TaskQuery taskCandidateOrAssigned(String userIdForCandidateAndAssignee, List<String> usersGroups) {
+    if (candidateGroup != null) {
+      throw new ActivitiIllegalArgumentException("Invalid query usage: cannot set candidateGroup");
+    }
+    if (candidateUser != null) {
+      throw new ActivitiIllegalArgumentException("Invalid query usage: cannot set both candidateGroup and candidateUser");
+    }
+
+    if(orActive) {
+      currentOrQueryObject.bothCandidateAndAssigned = true;
+      currentOrQueryObject.userIdForCandidateAndAssignee = userIdForCandidateAndAssignee;
+      currentOrQueryObject.candidateGroups = usersGroups;
+    } else {
+      this.bothCandidateAndAssigned = true;
+      this.userIdForCandidateAndAssignee = userIdForCandidateAndAssignee;
+      this.candidateGroups = usersGroups;
     }
 
     return this;
@@ -583,6 +627,15 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
       currentOrQueryObject.withoutTenantId = true;
     } else {
       this.withoutTenantId = true;
+    }
+    return this;
+  }
+
+  public TaskQuery taskParentTaskId(String parentTaskId) {
+    if (orActive) {
+      this.currentOrQueryObject.taskParentTaskId = parentTaskId;
+    } else {
+      this.taskParentTaskId = parentTaskId;
     }
     return this;
   }
@@ -1148,15 +1201,15 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
     return taskVariablesLimit;
   }
 
-  public List<String> getCandidateGroups() {
+  public List<String> getCandidateGroups(){
     if (candidateGroup != null) {
       List<String> candidateGroupList = new ArrayList<String>(1);
       candidateGroupList.add(candidateGroup);
       return candidateGroupList;
-      
+
     } else if (candidateGroups != null) {
       return candidateGroups;
-    
+
     } else if (candidateUser != null) {
       return getGroupsForCandidateUser(candidateUser);
 
@@ -1167,15 +1220,13 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
   }
 
   protected List<String> getGroupsForCandidateUser(String candidateUser) {
-    // TODO: Discuss about removing this feature? Or document it properly
-    // and maybe recommend to not use it
-    // and explain alternatives
-    List<Group> groups = Context.getCommandContext().getGroupEntityManager().findGroupsByUser(candidateUser);
-    List<String> groupIds = new ArrayList<String>();
-    for (Group group : groups) {
-      groupIds.add(group.getId());
+    UserGroupManager userGroupManager = Context.getProcessEngineConfiguration().getUserGroupManager();
+    if(userGroupManager !=null){
+      return userGroupManager.getUserGroups(candidateUser);
+    } else{
+      log.warn("No UserGroupManager set on ProcessEngineConfiguration. Tasks queried only where user is directly related, not through groups.");
     }
-    return groupIds;
+    return null;
   }
 
   protected void ensureVariablesInitialized() {
@@ -1332,12 +1383,12 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
         ObjectNode languageNode = Context.getLocalizationElementProperties(locale, task.getTaskDefinitionKey(), processDefinitionId, withLocalizationFallback);
         if (languageNode != null) {
           JsonNode languageNameNode = languageNode.get(DynamicBpmnConstants.LOCALIZATION_NAME);
-          if (languageNameNode != null && languageNameNode.isNull() == false) {
+          if (languageNameNode != null && !languageNameNode.isNull()) {
             task.setLocalizedName(languageNameNode.asText());
           }
           
           JsonNode languageDescriptionNode = languageNode.get(DynamicBpmnConstants.LOCALIZATION_DESCRIPTION);
-          if (languageDescriptionNode != null && languageDescriptionNode.isNull() == false) {
+          if (languageDescriptionNode != null && !languageDescriptionNode.isNull()) {
             task.setLocalizedDescription(languageDescriptionNode.asText());
           }
         }
@@ -1515,6 +1566,10 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
     return ownerLike;
   }
 
+  public String getTaskParentTaskId() {
+    return taskParentTaskId;
+  }
+
   public String getCategory() {
     return category;
   }
@@ -1614,5 +1669,4 @@ public class TaskQueryImpl extends AbstractVariableQueryImpl<TaskQuery, Task> im
   public boolean isOrActive() {
     return orActive;
   }
-
 }

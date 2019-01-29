@@ -12,8 +12,42 @@
  */
 package org.activiti.engine.impl.cfg;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.net.URL;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.ServiceLoader;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import javax.naming.InitialContext;
+import javax.sql.DataSource;
+import javax.xml.namespace.QName;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.activiti.engine.*;
+import org.activiti.engine.ActivitiException;
+import org.activiti.engine.DynamicBpmnService;
+import org.activiti.engine.HistoryService;
+import org.activiti.engine.ManagementService;
+import org.activiti.engine.ProcessEngine;
+import org.activiti.engine.ProcessEngineConfiguration;
+import org.activiti.engine.RepositoryService;
+import org.activiti.engine.RuntimeService;
+import org.activiti.engine.TaskService;
 import org.activiti.engine.cfg.ProcessEngineConfigurator;
 import org.activiti.engine.compatibility.Activiti5CompatibilityHandler;
 import org.activiti.engine.compatibility.Activiti5CompatibilityHandlerFactory;
@@ -22,18 +56,71 @@ import org.activiti.engine.delegate.event.ActivitiEventDispatcher;
 import org.activiti.engine.delegate.event.ActivitiEventListener;
 import org.activiti.engine.delegate.event.ActivitiEventType;
 import org.activiti.engine.delegate.event.impl.ActivitiEventDispatcherImpl;
-import org.activiti.engine.impl.*;
+import org.activiti.engine.impl.DynamicBpmnServiceImpl;
+import org.activiti.engine.impl.HistoryServiceImpl;
+import org.activiti.engine.impl.ManagementServiceImpl;
+import org.activiti.engine.impl.ProcessEngineImpl;
+import org.activiti.engine.impl.RepositoryServiceImpl;
+import org.activiti.engine.impl.RuntimeServiceImpl;
+import org.activiti.engine.impl.ServiceImpl;
+import org.activiti.engine.impl.TaskServiceImpl;
 import org.activiti.engine.impl.agenda.DefaultActivitiEngineAgendaFactory;
-import org.activiti.engine.impl.asyncexecutor.*;
+import org.activiti.engine.impl.asyncexecutor.AsyncExecutor;
+import org.activiti.engine.impl.asyncexecutor.DefaultAsyncJobExecutor;
+import org.activiti.engine.impl.asyncexecutor.DefaultJobManager;
+import org.activiti.engine.impl.asyncexecutor.ExecuteAsyncRunnableFactory;
+import org.activiti.engine.impl.asyncexecutor.JobManager;
 import org.activiti.engine.impl.bpmn.data.ItemInstance;
-import org.activiti.engine.impl.bpmn.deployer.*;
+import org.activiti.engine.impl.bpmn.deployer.BpmnDeployer;
+import org.activiti.engine.impl.bpmn.deployer.BpmnDeploymentHelper;
+import org.activiti.engine.impl.bpmn.deployer.CachingAndArtifactsManager;
+import org.activiti.engine.impl.bpmn.deployer.EventSubscriptionManager;
+import org.activiti.engine.impl.bpmn.deployer.ParsedDeploymentBuilderFactory;
+import org.activiti.engine.impl.bpmn.deployer.TimerManager;
 import org.activiti.engine.impl.bpmn.listener.ListenerNotificationHelper;
 import org.activiti.engine.impl.bpmn.parser.BpmnParseHandlers;
 import org.activiti.engine.impl.bpmn.parser.BpmnParser;
-import org.activiti.engine.impl.bpmn.parser.factory.*;
-import org.activiti.engine.impl.bpmn.parser.handler.*;
+import org.activiti.engine.impl.bpmn.parser.factory.AbstractBehaviorFactory;
+import org.activiti.engine.impl.bpmn.parser.factory.ActivityBehaviorFactory;
+import org.activiti.engine.impl.bpmn.parser.factory.DefaultActivityBehaviorFactory;
+import org.activiti.engine.impl.bpmn.parser.factory.DefaultListenerFactory;
+import org.activiti.engine.impl.bpmn.parser.factory.ListenerFactory;
+import org.activiti.engine.impl.bpmn.parser.handler.AdhocSubProcessParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.BoundaryEventParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.BusinessRuleParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.CallActivityParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.CancelEventDefinitionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.CompensateEventDefinitionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.EndEventParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ErrorEventDefinitionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.EventBasedGatewayParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.EventSubProcessParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ExclusiveGatewayParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.InclusiveGatewayParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.IntermediateCatchEventParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.IntermediateThrowEventParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ManualTaskParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.MessageEventDefinitionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ParallelGatewayParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ProcessParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ReceiveTaskParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ScriptTaskParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.SendTaskParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.SequenceFlowParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.ServiceTaskParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.SignalEventDefinitionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.StartEventParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.SubProcessParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.TaskParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.TimerEventDefinitionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.TransactionParseHandler;
+import org.activiti.engine.impl.bpmn.parser.handler.UserTaskParseHandler;
 import org.activiti.engine.impl.bpmn.webservice.MessageInstance;
-import org.activiti.engine.impl.calendar.*;
+import org.activiti.engine.impl.calendar.BusinessCalendarManager;
+import org.activiti.engine.impl.calendar.CycleBusinessCalendar;
+import org.activiti.engine.impl.calendar.DueDateBusinessCalendar;
+import org.activiti.engine.impl.calendar.DurationBusinessCalendar;
+import org.activiti.engine.impl.calendar.MapBusinessCalendarManager;
 import org.activiti.engine.impl.cfg.standalone.StandaloneMybatisTransactionContextFactory;
 import org.activiti.engine.impl.cmd.ValidateExecutionRelatedEntityCountCfgCmd;
 import org.activiti.engine.impl.db.DbIdGenerator;
@@ -49,23 +136,179 @@ import org.activiti.engine.impl.event.logger.EventLogger;
 import org.activiti.engine.impl.history.DefaultHistoryManager;
 import org.activiti.engine.impl.history.HistoryLevel;
 import org.activiti.engine.impl.history.HistoryManager;
-import org.activiti.engine.impl.interceptor.*;
-import org.activiti.engine.impl.jobexecutor.*;
+import org.activiti.engine.impl.interceptor.CommandConfig;
+import org.activiti.engine.impl.interceptor.CommandContextFactory;
+import org.activiti.engine.impl.interceptor.CommandContextInterceptor;
+import org.activiti.engine.impl.interceptor.CommandExecutor;
+import org.activiti.engine.impl.interceptor.CommandInterceptor;
+import org.activiti.engine.impl.interceptor.CommandInvoker;
+import org.activiti.engine.impl.interceptor.DebugCommandInvoker;
+import org.activiti.engine.impl.interceptor.DelegateInterceptor;
+import org.activiti.engine.impl.interceptor.LogInterceptor;
+import org.activiti.engine.impl.interceptor.SessionFactory;
+import org.activiti.engine.impl.interceptor.TransactionContextInterceptor;
+import org.activiti.engine.impl.jobexecutor.AsyncContinuationJobHandler;
+import org.activiti.engine.impl.jobexecutor.DefaultFailedJobCommandFactory;
+import org.activiti.engine.impl.jobexecutor.FailedJobCommandFactory;
+import org.activiti.engine.impl.jobexecutor.JobHandler;
+import org.activiti.engine.impl.jobexecutor.ProcessEventJobHandler;
+import org.activiti.engine.impl.jobexecutor.TimerActivateProcessDefinitionHandler;
+import org.activiti.engine.impl.jobexecutor.TimerStartEventJobHandler;
+import org.activiti.engine.impl.jobexecutor.TimerSuspendProcessDefinitionHandler;
+import org.activiti.engine.impl.jobexecutor.TriggerTimerEventJobHandler;
 import org.activiti.engine.impl.persistence.GenericManagerFactory;
 import org.activiti.engine.impl.persistence.cache.EntityCache;
 import org.activiti.engine.impl.persistence.cache.EntityCacheImpl;
-import org.activiti.engine.impl.persistence.deploy.*;
-import org.activiti.engine.impl.persistence.entity.*;
-import org.activiti.engine.impl.persistence.entity.data.*;
-import org.activiti.engine.impl.persistence.entity.data.impl.*;
-import org.activiti.engine.impl.scripting.*;
+import org.activiti.engine.impl.persistence.deploy.DefaultDeploymentCache;
+import org.activiti.engine.impl.persistence.deploy.Deployer;
+import org.activiti.engine.impl.persistence.deploy.DeploymentCache;
+import org.activiti.engine.impl.persistence.deploy.DeploymentManager;
+import org.activiti.engine.impl.persistence.deploy.ProcessDefinitionCacheEntry;
+import org.activiti.engine.impl.persistence.deploy.ProcessDefinitionInfoCache;
+import org.activiti.engine.impl.persistence.entity.AttachmentEntityManager;
+import org.activiti.engine.impl.persistence.entity.AttachmentEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.ByteArrayEntityManager;
+import org.activiti.engine.impl.persistence.entity.ByteArrayEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.CommentEntityManager;
+import org.activiti.engine.impl.persistence.entity.CommentEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.DeadLetterJobEntityManager;
+import org.activiti.engine.impl.persistence.entity.DeadLetterJobEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.DeploymentEntityManager;
+import org.activiti.engine.impl.persistence.entity.DeploymentEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.EventLogEntryEntityManager;
+import org.activiti.engine.impl.persistence.entity.EventLogEntryEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.EventSubscriptionEntityManager;
+import org.activiti.engine.impl.persistence.entity.EventSubscriptionEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.ExecutionEntityManager;
+import org.activiti.engine.impl.persistence.entity.ExecutionEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.HistoricActivityInstanceEntityManager;
+import org.activiti.engine.impl.persistence.entity.HistoricActivityInstanceEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.HistoricDetailEntityManager;
+import org.activiti.engine.impl.persistence.entity.HistoricDetailEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.HistoricIdentityLinkEntityManager;
+import org.activiti.engine.impl.persistence.entity.HistoricIdentityLinkEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.HistoricProcessInstanceEntityManager;
+import org.activiti.engine.impl.persistence.entity.HistoricProcessInstanceEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.HistoricTaskInstanceEntityManager;
+import org.activiti.engine.impl.persistence.entity.HistoricTaskInstanceEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.HistoricVariableInstanceEntityManager;
+import org.activiti.engine.impl.persistence.entity.HistoricVariableInstanceEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.IdentityLinkEntityManager;
+import org.activiti.engine.impl.persistence.entity.IdentityLinkEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.JobEntityManager;
+import org.activiti.engine.impl.persistence.entity.JobEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.ModelEntityManager;
+import org.activiti.engine.impl.persistence.entity.ModelEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.ProcessDefinitionEntityManager;
+import org.activiti.engine.impl.persistence.entity.ProcessDefinitionEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.ProcessDefinitionInfoEntityManager;
+import org.activiti.engine.impl.persistence.entity.ProcessDefinitionInfoEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.PropertyEntityManager;
+import org.activiti.engine.impl.persistence.entity.PropertyEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.ResourceEntityManager;
+import org.activiti.engine.impl.persistence.entity.ResourceEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.SuspendedJobEntityManager;
+import org.activiti.engine.impl.persistence.entity.SuspendedJobEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.TableDataManager;
+import org.activiti.engine.impl.persistence.entity.TableDataManagerImpl;
+import org.activiti.engine.impl.persistence.entity.TaskEntityManager;
+import org.activiti.engine.impl.persistence.entity.TaskEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.TimerJobEntityManager;
+import org.activiti.engine.impl.persistence.entity.TimerJobEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.VariableInstanceEntityManager;
+import org.activiti.engine.impl.persistence.entity.VariableInstanceEntityManagerImpl;
+import org.activiti.engine.impl.persistence.entity.data.AttachmentDataManager;
+import org.activiti.engine.impl.persistence.entity.data.ByteArrayDataManager;
+import org.activiti.engine.impl.persistence.entity.data.CommentDataManager;
+import org.activiti.engine.impl.persistence.entity.data.DeadLetterJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.DeploymentDataManager;
+import org.activiti.engine.impl.persistence.entity.data.EventLogEntryDataManager;
+import org.activiti.engine.impl.persistence.entity.data.EventSubscriptionDataManager;
+import org.activiti.engine.impl.persistence.entity.data.ExecutionDataManager;
+import org.activiti.engine.impl.persistence.entity.data.HistoricActivityInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.HistoricDetailDataManager;
+import org.activiti.engine.impl.persistence.entity.data.HistoricIdentityLinkDataManager;
+import org.activiti.engine.impl.persistence.entity.data.HistoricProcessInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.HistoricTaskInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.HistoricVariableInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.IdentityLinkDataManager;
+import org.activiti.engine.impl.persistence.entity.data.JobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.ModelDataManager;
+import org.activiti.engine.impl.persistence.entity.data.ProcessDefinitionDataManager;
+import org.activiti.engine.impl.persistence.entity.data.ProcessDefinitionInfoDataManager;
+import org.activiti.engine.impl.persistence.entity.data.PropertyDataManager;
+import org.activiti.engine.impl.persistence.entity.data.ResourceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.SuspendedJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.TaskDataManager;
+import org.activiti.engine.impl.persistence.entity.data.TimerJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.VariableInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisAttachmentDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisByteArrayDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisCommentDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisDeadLetterJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisDeploymentDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisEventLogEntryDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisEventSubscriptionDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisExecutionDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisHistoricActivityInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisHistoricDetailDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisHistoricIdentityLinkDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisHistoricProcessInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisHistoricTaskInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisHistoricVariableInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisIdentityLinkDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisModelDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisProcessDefinitionDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisProcessDefinitionInfoDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisPropertyDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisResourceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisSuspendedJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisTaskDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisTimerJobDataManager;
+import org.activiti.engine.impl.persistence.entity.data.impl.MybatisVariableInstanceDataManager;
+import org.activiti.engine.impl.persistence.entity.data.integration.IntegrationContextDataManager;
+import org.activiti.engine.impl.persistence.entity.data.integration.MybatisIntegrationContextDataManager;
+import org.activiti.engine.impl.persistence.entity.integration.IntegrationContextManager;
+import org.activiti.engine.impl.persistence.entity.integration.IntegrationContextManagerImpl;
+import org.activiti.engine.impl.scripting.BeansResolverFactory;
+import org.activiti.engine.impl.scripting.ResolverFactory;
+import org.activiti.engine.impl.scripting.ScriptBindingsFactory;
+import org.activiti.engine.impl.scripting.ScriptingEngines;
+import org.activiti.engine.impl.scripting.VariableScopeResolverFactory;
 import org.activiti.engine.impl.util.DefaultClockImpl;
 import org.activiti.engine.impl.util.IoUtil;
 import org.activiti.engine.impl.util.ProcessInstanceHelper;
 import org.activiti.engine.impl.util.ReflectUtil;
-import org.activiti.engine.impl.variable.*;
+import org.activiti.engine.impl.variable.BooleanType;
+import org.activiti.engine.impl.variable.ByteArrayType;
+import org.activiti.engine.impl.variable.CustomObjectType;
+import org.activiti.engine.impl.variable.DateType;
+import org.activiti.engine.impl.variable.DefaultVariableTypes;
+import org.activiti.engine.impl.variable.DoubleType;
+import org.activiti.engine.impl.variable.EntityManagerSession;
+import org.activiti.engine.impl.variable.EntityManagerSessionFactory;
+import org.activiti.engine.impl.variable.IntegerType;
+import org.activiti.engine.impl.variable.JPAEntityListVariableType;
+import org.activiti.engine.impl.variable.JPAEntityVariableType;
+import org.activiti.engine.impl.variable.JodaDateTimeType;
+import org.activiti.engine.impl.variable.JodaDateType;
+import org.activiti.engine.impl.variable.JsonType;
+import org.activiti.engine.impl.variable.LongJsonType;
+import org.activiti.engine.impl.variable.LongStringType;
+import org.activiti.engine.impl.variable.LongType;
+import org.activiti.engine.impl.variable.NullType;
+import org.activiti.engine.impl.variable.SerializableType;
+import org.activiti.engine.impl.variable.ShortType;
+import org.activiti.engine.impl.variable.StringType;
+import org.activiti.engine.impl.variable.UUIDType;
+import org.activiti.engine.impl.variable.VariableType;
+import org.activiti.engine.impl.variable.VariableTypes;
+import org.activiti.engine.integration.IntegrationContextService;
+import org.activiti.engine.integration.IntegrationContextServiceImpl;
 import org.activiti.engine.parse.BpmnParseHandler;
 import org.activiti.engine.runtime.Clock;
+import org.activiti.runtime.api.identity.UserGroupManager;
 import org.activiti.validation.ProcessValidator;
 import org.activiti.validation.ProcessValidatorFactory;
 import org.apache.ibatis.builder.xml.XMLConfigBuilder;
@@ -81,23 +324,6 @@ import org.apache.ibatis.transaction.managed.ManagedTransactionFactory;
 import org.apache.ibatis.type.JdbcType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.naming.InitialContext;
-import javax.sql.DataSource;
-import javax.xml.namespace.QName;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.net.URL;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.SQLException;
-import java.util.*;
-import java.util.Map.Entry;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 
 public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfiguration {
@@ -119,10 +345,11 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
   protected RepositoryService repositoryService = new RepositoryServiceImpl();
   protected RuntimeService runtimeService = new RuntimeServiceImpl();
   protected HistoryService historyService = new HistoryServiceImpl(this);
-  protected IdentityService identityService = new IdentityServiceImpl();
   protected TaskService taskService = new TaskServiceImpl(this);
   protected ManagementService managementService = new ManagementServiceImpl();
   protected DynamicBpmnService dynamicBpmnService = new DynamicBpmnServiceImpl(this);
+  protected UserGroupManager userGroupManager;
+  private IntegrationContextService integrationContextService;
 
   // COMMAND EXECUTORS ////////////////////////////////////////////////////////
 
@@ -151,28 +378,25 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
   protected EventLogEntryDataManager eventLogEntryDataManager;
   protected EventSubscriptionDataManager eventSubscriptionDataManager;
   protected ExecutionDataManager executionDataManager;
-  protected GroupDataManager groupDataManager;
   protected HistoricActivityInstanceDataManager historicActivityInstanceDataManager;
   protected HistoricDetailDataManager historicDetailDataManager;
   protected HistoricIdentityLinkDataManager historicIdentityLinkDataManager;
   protected HistoricProcessInstanceDataManager historicProcessInstanceDataManager;
   protected HistoricTaskInstanceDataManager historicTaskInstanceDataManager;
   protected HistoricVariableInstanceDataManager historicVariableInstanceDataManager;
-  protected IdentityInfoDataManager identityInfoDataManager;
   protected IdentityLinkDataManager identityLinkDataManager;
   protected JobDataManager jobDataManager;
   protected TimerJobDataManager timerJobDataManager;
   protected SuspendedJobDataManager suspendedJobDataManager;
   protected DeadLetterJobDataManager deadLetterJobDataManager;
-  protected MembershipDataManager membershipDataManager;
   protected ModelDataManager modelDataManager;
   protected ProcessDefinitionDataManager processDefinitionDataManager;
   protected ProcessDefinitionInfoDataManager processDefinitionInfoDataManager;
   protected PropertyDataManager propertyDataManager;
   protected ResourceDataManager resourceDataManager;
   protected TaskDataManager taskDataManager;
-  protected UserDataManager userDataManager;
   protected VariableInstanceDataManager variableInstanceDataManager;
+  private IntegrationContextDataManager integrationContextDataManager;
 
 
   // ENTITY MANAGERS ///////////////////////////////////////////////////////////
@@ -184,20 +408,17 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
   protected EventLogEntryEntityManager eventLogEntryEntityManager;
   protected EventSubscriptionEntityManager eventSubscriptionEntityManager;
   protected ExecutionEntityManager executionEntityManager;
-  protected GroupEntityManager groupEntityManager;
   protected HistoricActivityInstanceEntityManager historicActivityInstanceEntityManager;
   protected HistoricDetailEntityManager historicDetailEntityManager;
   protected HistoricIdentityLinkEntityManager historicIdentityLinkEntityManager;
   protected HistoricProcessInstanceEntityManager historicProcessInstanceEntityManager;
   protected HistoricTaskInstanceEntityManager historicTaskInstanceEntityManager;
   protected HistoricVariableInstanceEntityManager historicVariableInstanceEntityManager;
-  protected IdentityInfoEntityManager identityInfoEntityManager;
   protected IdentityLinkEntityManager identityLinkEntityManager;
   protected JobEntityManager jobEntityManager;
   protected TimerJobEntityManager timerJobEntityManager;
   protected SuspendedJobEntityManager suspendedJobEntityManager;
   protected DeadLetterJobEntityManager deadLetterJobEntityManager;
-  protected MembershipEntityManager membershipEntityManager;
   protected ModelEntityManager modelEntityManager;
   protected ProcessDefinitionEntityManager processDefinitionEntityManager;
   protected ProcessDefinitionInfoEntityManager processDefinitionInfoEntityManager;
@@ -205,8 +426,8 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
   protected ResourceEntityManager resourceEntityManager;
   protected TableDataManager tableDataManager;
   protected TaskEntityManager taskEntityManager;
-  protected UserEntityManager userEntityManager;
   protected VariableInstanceEntityManager variableInstanceEntityManager;
+  private IntegrationContextManager integrationContextManager;
 
   // History Manager
 
@@ -806,7 +1027,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     initService(repositoryService);
     initService(runtimeService);
     initService(historyService);
-    initService(identityService);
     initService(taskService);
     initService(managementService);
     initService(dynamicBpmnService);
@@ -851,7 +1071,7 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
         if (jdbcMaxWaitTime > 0) {
           pooledDataSource.setPoolTimeToWait(jdbcMaxWaitTime);
         }
-        if (jdbcPingEnabled == true) {
+        if (jdbcPingEnabled) {
           pooledDataSource.setPoolPingEnabled(true);
           if (jdbcPingQuery != null) {
             pooledDataSource.setPoolPingQuery(jdbcPingQuery);
@@ -1095,9 +1315,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     if (executionDataManager == null) {
       executionDataManager = new MybatisExecutionDataManager(this);
     }
-    if (groupDataManager == null) {
-      groupDataManager = new MybatisGroupDataManager(this);
-    }
     if (historicActivityInstanceDataManager == null) {
       historicActivityInstanceDataManager = new MybatisHistoricActivityInstanceDataManager(this);
     }
@@ -1116,9 +1333,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     if (historicVariableInstanceDataManager == null) {
       historicVariableInstanceDataManager = new MybatisHistoricVariableInstanceDataManager(this);
     }
-    if (identityInfoDataManager == null) {
-      identityInfoDataManager = new MybatisIdentityInfoDataManager(this);
-    }
     if (identityLinkDataManager == null) {
       identityLinkDataManager = new MybatisIdentityLinkDataManager(this);
     }
@@ -1133,9 +1347,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     }
     if (deadLetterJobDataManager == null) {
       deadLetterJobDataManager = new MybatisDeadLetterJobDataManager(this);
-    }
-    if (membershipDataManager == null) {
-      membershipDataManager = new MybatisMembershipDataManager(this);
     }
     if (modelDataManager == null) {
       modelDataManager = new MybatisModelDataManager(this);
@@ -1155,15 +1366,12 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     if (taskDataManager == null) {
       taskDataManager = new MybatisTaskDataManager(this);
     }
-    if (userDataManager == null) {
-      userDataManager = new MybatisUserDataManager(this);
-    }
     if (variableInstanceDataManager == null) {
       variableInstanceDataManager = new MybatisVariableInstanceDataManager(this);
     }
   }
 
-  // Entity managers //////////////////////////////////////////////////////////
+    // Entity managers //////////////////////////////////////////////////////////
 
   public void initEntityManagers() {
     if (attachmentEntityManager == null) {
@@ -1187,9 +1395,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     if (executionEntityManager == null) {
       executionEntityManager = new ExecutionEntityManagerImpl(this, executionDataManager);
     }
-    if (groupEntityManager == null) {
-      groupEntityManager = new GroupEntityManagerImpl(this, groupDataManager);
-    }
     if (historicActivityInstanceEntityManager == null) {
       historicActivityInstanceEntityManager = new HistoricActivityInstanceEntityManagerImpl(this, historicActivityInstanceDataManager);
     }
@@ -1208,9 +1413,7 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     if (historicVariableInstanceEntityManager == null) {
       historicVariableInstanceEntityManager = new HistoricVariableInstanceEntityManagerImpl(this, historicVariableInstanceDataManager);
     }
-    if (identityInfoEntityManager == null) {
-      identityInfoEntityManager = new IdentityInfoEntityManagerImpl(this, identityInfoDataManager);
-    }
+
     if (identityLinkEntityManager == null) {
       identityLinkEntityManager = new IdentityLinkEntityManagerImpl(this, identityLinkDataManager);
     }
@@ -1225,9 +1428,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     }
     if (deadLetterJobEntityManager == null) {
       deadLetterJobEntityManager = new DeadLetterJobEntityManagerImpl(this, deadLetterJobDataManager);
-    }
-    if (membershipEntityManager == null) {
-      membershipEntityManager = new MembershipEntityManagerImpl(this, membershipDataManager);
     }
     if (modelEntityManager == null) {
       modelEntityManager = new ModelEntityManagerImpl(this, modelDataManager);
@@ -1250,15 +1450,12 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     if (taskEntityManager == null) {
       taskEntityManager = new TaskEntityManagerImpl(this, taskDataManager);
     }
-    if (userEntityManager == null) {
-      userEntityManager = new UserEntityManagerImpl(this, userDataManager);
-    }
     if (variableInstanceEntityManager == null) {
       variableInstanceEntityManager = new VariableInstanceEntityManagerImpl(this, variableInstanceDataManager);
     }
   }
 
-  // History manager ///////////////////////////////////////////////////////////
+    // History manager ///////////////////////////////////////////////////////////
 
   public void initHistoryManager() {
     if (historyManager == null) {
@@ -1303,7 +1500,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     dbSqlSessionFactory.setDatabaseType(databaseType);
     dbSqlSessionFactory.setIdGenerator(idGenerator);
     dbSqlSessionFactory.setSqlSessionFactory(sqlSessionFactory);
-    dbSqlSessionFactory.setDbIdentityUsed(isDbIdentityUsed);
     dbSqlSessionFactory.setDbHistoryUsed(isDbHistoryUsed);
     dbSqlSessionFactory.setDatabaseTablePrefix(databaseTablePrefix);
     dbSqlSessionFactory.setTablePrefixIsSchema(tablePrefixIsSchema);
@@ -1811,7 +2007,7 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
 
   public int getMaxLengthString() {
     if (maxLengthStringVariableType == -1) {
-      if ("oracle".equalsIgnoreCase(databaseType) == true) {
+      if ("oracle".equalsIgnoreCase(databaseType)) {
         return DEFAULT_ORACLE_MAX_LENGTH_STRING;
       } else {
         return DEFAULT_GENERIC_MAX_LENGTH_STRING;
@@ -2073,15 +2269,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public IdentityService getIdentityService() {
-    return identityService;
-  }
-
-  public ProcessEngineConfigurationImpl setIdentityService(IdentityService identityService) {
-    this.identityService = identityService;
-    return this;
-  }
-
   public TaskService getTaskService() {
     return taskService;
   }
@@ -2108,6 +2295,38 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     this.dynamicBpmnService = dynamicBpmnService;
     return this;
   }
+
+  public void setUserGroupManager(UserGroupManager userGroupManager) {
+        this.userGroupManager = userGroupManager;
+    }
+
+    @Override
+    public UserGroupManager getUserGroupManager() {
+        return userGroupManager;
+    }
+
+    public IntegrationContextManager getIntegrationContextManager() {
+        if (integrationContextManager == null) {
+            integrationContextManager = new IntegrationContextManagerImpl(this,
+                                                                          getIntegrationContextDataManager());
+        }
+        return integrationContextManager;
+    }
+
+    private IntegrationContextDataManager getIntegrationContextDataManager() {
+        if (integrationContextDataManager == null) {
+            integrationContextDataManager = new MybatisIntegrationContextDataManager(this);
+        }
+        return integrationContextDataManager;
+    }
+
+    @Override
+    public IntegrationContextService getIntegrationContextService() {
+        if (integrationContextService == null) {
+            integrationContextService = new IntegrationContextServiceImpl(commandExecutor);
+        }
+        return integrationContextService;
+    }
 
   public ProcessEngineConfigurationImpl getProcessEngineConfiguration() {
     return this;
@@ -2865,15 +3084,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public GroupDataManager getGroupDataManager() {
-    return groupDataManager;
-  }
-
-  public ProcessEngineConfigurationImpl setGroupDataManager(GroupDataManager groupDataManager) {
-    this.groupDataManager = groupDataManager;
-    return this;
-  }
-
   public HistoricActivityInstanceDataManager getHistoricActivityInstanceDataManager() {
     return historicActivityInstanceDataManager;
   }
@@ -2928,15 +3138,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public IdentityInfoDataManager getIdentityInfoDataManager() {
-    return identityInfoDataManager;
-  }
-
-  public ProcessEngineConfigurationImpl setIdentityInfoDataManager(IdentityInfoDataManager identityInfoDataManager) {
-    this.identityInfoDataManager = identityInfoDataManager;
-    return this;
-  }
-
   public IdentityLinkDataManager getIdentityLinkDataManager() {
     return identityLinkDataManager;
   }
@@ -2982,14 +3183,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public MembershipDataManager getMembershipDataManager() {
-    return membershipDataManager;
-  }
-
-  public ProcessEngineConfigurationImpl setMembershipDataManager(MembershipDataManager membershipDataManager) {
-    this.membershipDataManager = membershipDataManager;
-    return this;
-  }
 
   public ModelDataManager getModelDataManager() {
     return modelDataManager;
@@ -3042,15 +3235,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
 
   public ProcessEngineConfigurationImpl setTaskDataManager(TaskDataManager taskDataManager) {
     this.taskDataManager = taskDataManager;
-    return this;
-  }
-
-  public UserDataManager getUserDataManager() {
-    return userDataManager;
-  }
-
-  public ProcessEngineConfigurationImpl setUserDataManager(UserDataManager userDataManager) {
-    this.userDataManager = userDataManager;
     return this;
   }
 
@@ -3130,15 +3314,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public GroupEntityManager getGroupEntityManager() {
-    return groupEntityManager;
-  }
-
-  public ProcessEngineConfigurationImpl setGroupEntityManager(GroupEntityManager groupEntityManager) {
-    this.groupEntityManager = groupEntityManager;
-    return this;
-  }
-
   public HistoricActivityInstanceEntityManager getHistoricActivityInstanceEntityManager() {
     return historicActivityInstanceEntityManager;
   }
@@ -3193,15 +3368,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public IdentityInfoEntityManager getIdentityInfoEntityManager() {
-    return identityInfoEntityManager;
-  }
-
-  public ProcessEngineConfigurationImpl setIdentityInfoEntityManager(IdentityInfoEntityManager identityInfoEntityManager) {
-    this.identityInfoEntityManager = identityInfoEntityManager;
-    return this;
-  }
-
   public IdentityLinkEntityManager getIdentityLinkEntityManager() {
     return identityLinkEntityManager;
   }
@@ -3247,14 +3413,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
     return this;
   }
 
-  public MembershipEntityManager getMembershipEntityManager() {
-    return membershipEntityManager;
-  }
-
-  public ProcessEngineConfigurationImpl setMembershipEntityManager(MembershipEntityManager membershipEntityManager) {
-    this.membershipEntityManager = membershipEntityManager;
-    return this;
-  }
 
   public ModelEntityManager getModelEntityManager() {
     return modelEntityManager;
@@ -3307,15 +3465,6 @@ public abstract class ProcessEngineConfigurationImpl extends ProcessEngineConfig
 
   public ProcessEngineConfigurationImpl setTaskEntityManager(TaskEntityManager taskEntityManager) {
     this.taskEntityManager = taskEntityManager;
-    return this;
-  }
-
-  public UserEntityManager getUserEntityManager() {
-    return userEntityManager;
-  }
-
-  public ProcessEngineConfigurationImpl setUserEntityManager(UserEntityManager userEntityManager) {
-    this.userEntityManager = userEntityManager;
     return this;
   }
 
